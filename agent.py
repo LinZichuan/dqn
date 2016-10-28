@@ -1,8 +1,10 @@
 import numpy as np
 import random
+import os
 from ops import conv2d, linear
 from replay_memory import ReplayMemory
 import tensorflow as tf
+from tqdm import tqdm
 
 class Agent:
     def __init__(self, config, env, sess):
@@ -15,16 +17,24 @@ class Agent:
         self.target_q_update_step = config.target_q_update_step
         self.step_input = config.step_input
         self.max_step = config.max_step
+        self.test_step = config.test_step
         self.learn_start = config.learn_start
         self.min_delta = config.min_delta
         self.max_delta = config.max_delta
         self.learning_rate_minimum = config.learning_rate_minimum
-        self.learning_rate = config.learning_rate,
+        self.learning_rate = config.learning_rate
         self.learning_rate_decay_step = config.learning_rate_decay_step
         self.learning_rate_decay = config.learning_rate_decay
 
         self.memory = ReplayMemory(config)
         self.history = np.zeros([self.hist_len, self.screen_h, self.screen_w], dtype=np.float32)
+
+        self.ep_end = config.ep_end
+        self.ep_start = config.ep_start
+        self.ep_end_t = config.ep_end_t
+        self.min_reward = config.min_reward
+        self.max_reward = config.max_reward
+        self.discount = config.discount
 
         self.build_graph()
 
@@ -40,7 +50,7 @@ class Agent:
         for i in xrange(self.hist_len):
             self.history[i] = screen
 
-        for self.step in xrange(start_step, self.max_step):
+        for self.step in tqdm(xrange(start_step, self.max_step), ncols=70, initial=start_step):
             if self.step == self.learn_start:
                 num_game, self.update_count, ep_reward = 0, 0, 0.
                 total_reward, self.total_loss, self.total_q = 0., 0., 0.
@@ -49,8 +59,8 @@ class Agent:
                 #new game? because we start learning from middle of a game episode.
 
             action = self.predict(self.history)
-            screen, reward, term, _ = self.env.step(action)
-            self.observer(screen, reward, action, term)
+            screen, reward, term = self.env.step(action)
+            self.observe(screen, reward, action, term)
 
             if term:
                 screen, reward, action, term = self.env.newGame()
@@ -63,6 +73,7 @@ class Agent:
             actions.append(action)
             total_reward += reward
 
+
             if self.step >= self.learn_start:
                 if self.step % self.test_step == self.test_step - 1:
                     avg_reward = total_reward / self.test_step
@@ -74,26 +85,27 @@ class Agent:
                         avg_ep_reward = np.mean(ep_rewards)
                     except:
                         max_ep_reward, min_ep_reward, avg_ep_reward = 0, 0, 0
-                    print '\navg_r: %.4f, avg_l: %.6f, avg_q: %.3.6f, avg_ep_r: %.4f, max_ep_r: %.4f, min_ep_r: %.4f, # game: %d' \
-                            % (avg_reward, avg_loss, avg_q, avg_ep_reward, max_ep_reward, min_ep_reward)
+                    print '\navg_r: %.4f, avg_l: %.6f, avg_q: %3.6f, avg_ep_r: %.4f, max_ep_r: %.4f, min_ep_r: %.4f, # game: %d' \
+                            % (avg_reward, avg_loss, avg_q, avg_ep_reward, max_ep_reward, min_ep_reward, num_game)
                     if max_avg_ep_reward * 0.9 <= avg_ep_reward:
-                        self.step_assign_op.eval({self.step_input: self.step + 1})
-                        self.save_model(self.step + 1)
+                        #self.step_assign_op.eval({self.step_input: self.step + 1})
+                        #self.save_model(self.step + 1)
                         max_avg_ep_reward = max(max_avg_ep_reward, avg_ep_reward)
                     if self.step > 180:
+                        #self.learning_rate_op.eval({self.learning_rate_step: self.step})
                         #inject summary
                         pass
-                num_game, self.update_count, ep_reward = 0, 0, 0.
-                total_reward, self.total_loss, self.total_q = 0., 0., 0.
-                max_avg_ep_reward = 0
-                ep_rewards, actions = [], []
+                    num_game, self.update_count, ep_reward = 0, 0, 0.
+                    total_reward, self.total_loss, self.total_q = 0., 0., 0.
+                    max_avg_ep_reward = 0
+                    ep_rewards, actions = [], []
 
     def predict(self, s_t, test_ep=None):
         ep = test_ep or (self.ep_end + max(0., self.ep_start - self.ep_end) * (self.ep_end_t - max(0., self.step - self.learn_start)) / self.ep_end_t)
         if random.random() < ep:
             action = random.randrange(self.env.action_size)
         else:
-            action = self.q_action.eval({self.s_t: s_t})[0]
+            action = self.q_action.eval({self.s_t: [s_t]})[0]
         return action
 
     def observe(self, screen, reward, action, term):
@@ -120,8 +132,8 @@ class Agent:
                 test_history[i] = screen
             for s in xrange(n_step):
                 #action = self.env.action_space_sample()
-                action = predict(test_history, test_ep=0.05)
-                screen, reward, term, _ = self.env.step(action)
+                action = self.predict(test_history, test_ep=0.05)
+                screen, reward, term = self.env.step(action)
                 current_reward += reward
                 if self.display:
                     self.env.render()
@@ -130,9 +142,10 @@ class Agent:
             best_reward = max(best_reward, current_reward)
             print 'current_reward: %d, best_reward: %d' % (current_reward, best_reward)
 
-    def createQNetwork(self, s_t, w, q, scope_name):
+    def createQNetwork(self, scope_name):
         init = tf.truncated_normal_initializer(0, 0.02)
         activation_fn = tf.nn.relu
+        w = {}
 
         with tf.variable_scope(scope_name):
             if self.cnn_format == 'NHWC':
@@ -153,21 +166,18 @@ class Agent:
 
             l4, w['l4_w'], w['l4_b'] = linear(l3_flat, 512, activation_fn=activation_fn, name='l4')
             q, w['q_w'], w['q_b'] = linear(l4, self.env.action_size, name='q')
+
+            return s_t, w, q
         
 
     def build_graph(self):
-        self.w = {}
-        self.t_w = {}
-        self.q, self.target_q = np.empty([self.env.action_size], dtype=np.float32), np.empty([self.env.action_size], dtype=np.float32)
-        self.s_t, self.target_s_t = None, None
-
         ###
-        self.createQNetwork(self.s_t, self.w, self.q, 'prediction') ##self.q = max Q value
+        self.s_t, self.w, self.q = self.createQNetwork('prediction') ##self.q = max Q value
         self.q_action = tf.argmax(self.q, dimension=1)
-        self.createQNetwork(self.target_s_t, self.t_w, self.target_q, 'target')
+        self.target_s_t, self.t_w, self.target_q = self.createQNetwork('target')
 
-        avg_q = tf.reduce_mean(self.q, 0)
         q_summary = []
+        avg_q = tf.reduce_mean(self.q, 0)
         for idx in xrange(self.env.action_size):
             q_summary.append(tf.histogram_summary('q/%s' % idx, avg_q[idx]))
         self.q_summary = tf.merge_summary(q_summary, 'q_summary')
@@ -179,9 +189,8 @@ class Agent:
             action_one_hot = tf.one_hot(self.action, self.env.action_size, 1.0, 0.0, name='action_one_hot')
             q_acted = tf.reduce_sum(self.q * action_one_hot, reduction_indices=1, name='q_acted')
 
-
-            delta = self.target_q_t - q_acted
-            self.clipped_delta = tf.clip_by_value(delta, self.min_delta, self.max_delta, name='clipped_delta')
+            self.delta = self.target_q_t - q_acted
+            self.clipped_delta = tf.clip_by_value(self.delta, self.min_delta, self.max_delta, name='clipped_delta')
             self.global_step = tf.Variable(0, trainable=False)
 
             self.loss = tf.reduce_mean(tf.square(self.clipped_delta), name='loss')
@@ -195,6 +204,8 @@ class Agent:
                         staircase=True))
             self.optim = tf.train.RMSPropOptimizer(
                     self.learning_rate_op, momentum=0.95, epsilon=0.01).minimize(self.loss)
+            #self.optim = tf.train.RMSPropOptimizer(0.00025).minimize(self.loss)
+            #self.optim = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
         tf.initialize_all_variables().run()
         self.update_target_q_network()
 
@@ -210,16 +221,17 @@ class Agent:
         target_q_t = (1 - term) * self.discount * max_q_t_plus_1 + reward
 
         _, q_t, loss, summary_str = self.sess.run([self.optim, self.q, self.loss, self.q_summary], {
+            self.s_t: s_t,
             self.target_q_t: target_q_t,
             self.action: action,
-            self.s_t: s_t,
-            self.learning_rate_step: self.step
+            self.learning_rate_step: self.step,
         })
         self.total_loss += loss
         self.total_q += q_t.mean()
         self.update_count += 1
 
     def update_target_q_network(self):
+        print "update target network!"
         for name in self.w.keys():
             self.t_w[name].assign(self.w[name].eval())
             #self.t_w_assign_op[name].eval({self.t_w_input[name]: self.w[name].eval()})

@@ -6,7 +6,8 @@ class Config:
     use_gpu = True
     scale = 10000
     max_step = 5000*scale
-    memory_size = 100*scale
+    test_step = 5 * scale
+    memory_size = 100 * scale
     learn_start = 5 * scale
     batch_size = 32
     discount = 0.99
@@ -16,6 +17,7 @@ class Config:
     learning_rate_decay_step = 5*scale
     ep_end = 0.1
     ep_start = 1.0
+    ep_end_t = memory_size
     hist_len = 4
     screen_h = 84
     screen_w = 84
@@ -24,4 +26,6 @@ class Config:
     step_input = 0
     max_delta = 1
     min_delta = -1
+    max_reward = 1.
+    min_reward = -1.
     
