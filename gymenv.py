@@ -9,9 +9,11 @@ class GymEnv:
         self.term = True
         self.display = config.display
         self.dims = (config.screen_h, config.screen_w)
+        self.action_repeat = config.action_repeat
 
     def newGame(self):
-        self._screen = self.env.reset()
+        if self.env.ale.lives() == 0:
+            self._screen = self.env.reset()
         self._screen, self.reward, self.term, _ = self.env.step(0)
         if self.display:
             self.render()
@@ -23,6 +25,22 @@ class GymEnv:
 
     def render(self):
         self.env.render()
+
+    def act(self, action, is_training=True):
+        cumulated_reward = 0
+        start_lives = self.env.ale.lives()
+        for _ in xrange(self.action_repeat):
+            self.step(action)
+            cumulated_reward += self.reward
+            if is_training and start_lives > self.env.ale.lives():
+                cumulated_reward -= 1
+                self.term = True
+            if self.term:
+                break
+        self.reward = cumulated_reward
+        if self.display:
+            self.render()
+        return self.screen, self.reward, self.term
 
     @property
     def action_size(self):

@@ -10,12 +10,13 @@ class Agent:
     def __init__(self, config, env, sess):
         self.sess = sess
         self.env = env
+        self.env_name = config.env_name
+        self.env_type = config.env_type
         self.cnn_format = config.cnn_format
         self.batch_size, self.hist_len,  self.screen_h, self.screen_w = \
                 config.batch_size, config.hist_len, config.screen_h, config.screen_w
         self.train_frequency = config.train_frequency
         self.target_q_update_step = config.target_q_update_step
-        self.step_input = config.step_input
         self.max_step = config.max_step
         self.test_step = config.test_step
         self.learn_start = config.learn_start
@@ -36,10 +37,13 @@ class Agent:
         self.max_reward = config.max_reward
         self.discount = config.discount
 
+        self.step_op = tf.Variable(0, trainable=False, name='step')
+        self.checkpoint_dir = config.checkpoint_dir
+
         self.build_graph()
 
     def train(self):
-        start_step = self.step_input
+        start_step = self.step_op.eval()
 
         num_game, self.update_count, ep_reward = 0, 0, 0.
         total_reward, self.total_loss, self.total_q = 0., 0., 0.
@@ -59,7 +63,7 @@ class Agent:
                 #new game? because we start learning from middle of a game episode.
 
             action = self.predict(self.history)
-            screen, reward, term = self.env.step(action)
+            screen, reward, term = self.env.act(action)
             self.observe(screen, reward, action, term)
 
             if term:
@@ -88,13 +92,23 @@ class Agent:
                     print '\navg_r: %.4f, avg_l: %.6f, avg_q: %3.6f, avg_ep_r: %.4f, max_ep_r: %.4f, min_ep_r: %.4f, # game: %d' \
                             % (avg_reward, avg_loss, avg_q, avg_ep_reward, max_ep_reward, min_ep_reward, num_game)
                     if max_avg_ep_reward * 0.9 <= avg_ep_reward:
+                        self.step_op.assign(self.step + 1).eval()
+                        self.save_model(self.step + 1)
                         #self.step_assign_op.eval({self.step_input: self.step + 1})
-                        #self.save_model(self.step + 1)
                         max_avg_ep_reward = max(max_avg_ep_reward, avg_ep_reward)
                     if self.step > 180:
                         #self.learning_rate_op.eval({self.learning_rate_step: self.step})
                         #inject summary
-                        pass
+                        self.inject_summary({
+                            'avg.reward': avg_reward,
+                            'avg.loss': avg_q,
+                            'avg.q': avg_q,
+                            'episode.max_reward': max_ep_reward,
+                            'episode.min_reward': min_ep_reward,
+                            'episode.avg_reward': avg_ep_reward,
+                            'episode.num_of_game': num_game,
+                            'training.learning_rate': self.learning_rate_op.eval({self.learning_rate_step: self.step}),
+                        })
                     num_game, self.update_count, ep_reward = 0, 0, 0.
                     total_reward, self.total_loss, self.total_q = 0., 0., 0.
                     max_avg_ep_reward = 0
@@ -133,7 +147,7 @@ class Agent:
             for s in xrange(n_step):
                 #action = self.env.action_space_sample()
                 action = self.predict(test_history, test_ep=0.05)
-                screen, reward, term = self.env.step(action)
+                screen, reward, term = self.env.act(action, is_training=False)
                 current_reward += reward
                 if self.display:
                     self.env.render()
@@ -206,8 +220,57 @@ class Agent:
                     self.learning_rate_op, momentum=0.95, epsilon=0.01).minimize(self.loss)
             #self.optim = tf.train.RMSPropOptimizer(0.00025).minimize(self.loss)
             #self.optim = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.loss)
+
+        with tf.variable_scope('summary'):
+            scalar_summary_tags = ['avg.reward', 'avg.loss', 'avg.q', \
+                    'episode.max_reward', 'episode.min_reward', 'episode.avg_reward', \
+                    'episode.num_of_game', 'training.learning_rate']
+            self.summary_placeholders = {}
+            self.summary_ops = {}
+            for tag in scalar_summary_tags:
+                self.summary_placeholders[tag] = tf.placeholder('float32', None, name=tag)
+                self.summary_ops[tag] = tf.scalar_summary("%s-%s/%s" % \
+                        (self.env_name, self.env_type, tag), self.summary_placeholders[tag])
+
+            hist_summary_tags = ['episode.rewards', 'episode.actions']
+            for tag in hist_summary_tags:
+                self.summary_placeholders[tag] = tf.placeholder('float32', None, name=tag)
+                self.summary_ops[tag] = tf.histogram_summary(tag, self.summary_placeholders[tag])
+
+            self.writer = tf.train.SummaryWriter('./logs/', self.sess.graph)
+
         tf.initialize_all_variables().run()
+        self.saver = tf.train.Saver(self.w.values() + [self.step_op], max_to_keep=30)
+        self.load_model()
         self.update_target_q_network()
+
+    def inject_summary(self, tag_dict):
+        print 'inject summary!'
+        summary_str_lists = self.sess.run([self.summary_ops[tag] for tag in tag_dict.keys()], {
+            self.summary_placeholders[tag]: value for tag, value in tag_dict.items()
+        })
+        for summary_str in summary_str_lists:
+            self.writer.add_summary(summary_str, self.step)
+
+    def load_model(self):
+        print ("[*] Loading checkpoints...")
+        ckpt = tf.train.get_checkpoint_state(self.checkpoint_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+            fname = os.path.join(self.checkpoint_dir, ckpt_name)
+            self.saver.restore(self.sess, fname)
+            print ("[*] Load SUCCESS: %s" % fname)
+            return True
+        else:
+            print ("[*] Load FAILED: %s" % self.checkpoint_dir)
+            return False
+
+    def save_model(self, step):
+        print ("[*] Saving checkpoints...")
+        model_name = type(self).__name__
+        if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
+        self.saver.save(self.sess, self.checkpoint_dir, global_step=step)
 
     def q_learning_mini_batch(self):
         if self.memory.count < self.hist_len:
@@ -226,6 +289,8 @@ class Agent:
             self.action: action,
             self.learning_rate_step: self.step,
         })
+
+        self.writer.add_summary(summary_str, self.step)
         self.total_loss += loss
         self.total_q += q_t.mean()
         self.update_count += 1
@@ -233,6 +298,13 @@ class Agent:
     def update_target_q_network(self):
         print "update target network!"
         for name in self.w.keys():
-            self.t_w[name].assign(self.w[name].eval())
+            self.t_w[name].assign(self.w[name]).eval()
             #self.t_w_assign_op[name].eval({self.t_w_input[name]: self.w[name].eval()})
+
+    '''def create_copy_op(self):
+        copy_ops = []
+        for name in self.w.keys():
+            copy_op = self.t_w[name].assign(self.w[name])
+            copy_ops.append(copy_op)
+        self.copy_op = copy_ops'''
 
