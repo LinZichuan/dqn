@@ -101,7 +101,7 @@ class Agent:
                         #inject summary
                         self.inject_summary({
                             'avg.reward': avg_reward,
-                            'avg.loss': avg_q,
+                            'avg.loss': avg_loss,
                             'avg.q': avg_q,
                             'episode.max_reward': max_ep_reward,
                             'episode.min_reward': min_ep_reward,
