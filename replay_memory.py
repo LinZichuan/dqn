@@ -1,6 +1,7 @@
 import numpy as np
 import random
-
+from utils import save_npy, load_npy
+import os
 
 class ReplayMemory:
     def __init__(self, config):
@@ -18,6 +19,10 @@ class ReplayMemory:
 
         self.prestates = np.empty((self.batch_size, self.hist_len, self.screen_h, self.screen_w), dtype=np.float16)
         self.poststates = np.empty((self.batch_size, self.hist_len, self.screen_h, self.screen_w), dtype=np.float16)
+
+        self.model_dir = config.model_dir
+        if not os.path.exists(self.model_dir):
+            os.makedirs(self.model_dir)
 
     def add(self, screen, reward, action, term):
         self.screens[self.current] = screen
@@ -60,6 +65,20 @@ class ReplayMemory:
         else:
             return self.prestates, actions, rewards, self.poststates, terms
 
+    def save(self):
+        for idx, (name, array) in enumerate(
+                zip(['actions', 'rewards', 'screens', 'terminals', 'prestates', 'poststates'], 
+                    [self.actions, self.rewards, self.screens, self.terms, self.prestates, self.poststates])):
+            save_npy(array, os.path.join(self.model_dir, name))
+
+    def load(self):
+        for idx, (name, array) in enumerate(
+                zip(['actions', 'rewards', 'screens', 'terminals', 'prestates', 'poststates'], 
+                    [self.actions, self.rewards, self.screens, self.terms, self.prestates, self.poststates])):
+            if not os.path.exists(os.path.join(self.model_dir, name)):
+                print ("[*] load %s memory failed..." % name)
+                continue
+            array = load_npy(os.path.join(self.model_dir, name))
 
 
 

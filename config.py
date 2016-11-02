@@ -32,4 +32,5 @@ class Config:
     min_reward = -1.
     
     checkpoint_dir = 'checkpoints/'
+    model_dir = 'model_dir/' + env_name + '/'
     double_q = True

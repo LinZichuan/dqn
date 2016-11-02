@@ -101,6 +101,7 @@ class Agent:
                     if max_avg_ep_reward * 0.9 <= avg_ep_reward:
                         self.step_op.assign(self.step + 1).eval()
                         self.save_model(self.step + 1)
+                        self.memory.save()
                         #self.step_assign_op.eval({self.step_input: self.step + 1})
                         max_avg_ep_reward = max(max_avg_ep_reward, avg_ep_reward)
                     if self.step > 180:
@@ -263,6 +264,7 @@ class Agent:
         tf.initialize_all_variables().run()
         self.saver = tf.train.Saver(self.w.values() + [self.step_op], max_to_keep=30)
         self.load_model()
+        self.memory.load()
         self.update_target_q_network()
 
     def inject_summary(self, tag_dict):
