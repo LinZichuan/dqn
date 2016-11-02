@@ -2,6 +2,7 @@ class Config:
     env_name = 'Breakout-v0'
     env_type='detail'
     cnn_format = 'NCHW'
+    is_train = True
     display = False
     action_repeat = 4
     use_gpu = True
@@ -31,3 +32,4 @@ class Config:
     min_reward = -1.
     
     checkpoint_dir = 'checkpoints/'
+    double_q = True

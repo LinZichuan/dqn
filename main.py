@@ -9,8 +9,10 @@ def main():
         
         env = GymEnv(config)
         agent = Agent(config, env, sess)
-        agent.train()
-        #agent.play(n_episode=1, n_step=10000)
+        if config.is_train:
+            agent.train()
+        else:
+            agent.play(n_episode=100, n_step=10000)
 
 
 if __name__ == '__main__':

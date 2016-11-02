@@ -5,6 +5,7 @@ from ops import conv2d, linear
 from replay_memory import ReplayMemory
 import tensorflow as tf
 from tqdm import tqdm
+import time
 
 class Agent:
     def __init__(self, config, env, sess):
@@ -26,8 +27,12 @@ class Agent:
         self.learning_rate = config.learning_rate
         self.learning_rate_decay_step = config.learning_rate_decay_step
         self.learning_rate_decay = config.learning_rate_decay
+        self.is_train = config.is_train
+        self.display = config.display
+        self.double_q = config.double_q
 
-        self.memory = ReplayMemory(config)
+        if self.is_train:
+            self.memory = ReplayMemory(config)
         self.history = np.zeros([self.hist_len, self.screen_h, self.screen_w], dtype=np.float32)
 
         self.ep_end = config.ep_end
@@ -39,6 +44,8 @@ class Agent:
 
         self.step_op = tf.Variable(0, trainable=False, name='step')
         self.checkpoint_dir = config.checkpoint_dir
+        if self.double_q:
+            self.checkpoint_dir = os.path.join(self.checkpoint_dir, 'double_q/')
 
         self.build_graph()
 
@@ -138,23 +145,31 @@ class Agent:
 
 
     def play(self, n_step=10000, n_episode=1):
+        gym_dir = './video/%s-%s' % (self.env_name, time.strftime("%Y-%m-%d_%H:%M:%S", time.gmtime()))
+        self.env.env.monitor.start(gym_dir)
         test_history = np.zeros([self.hist_len, self.screen_h, self.screen_w], dtype=np.float32)
+        best_reward = 0
         for idx in xrange(n_episode):
+            self.env.env.reset()
             screen, reward, action, term = self.env.newGame()
-            current_reward, best_reward = 0, 0
+            current_reward = 0
             for i in xrange(self.hist_len):
                 test_history[i] = screen
             for s in xrange(n_step):
                 #action = self.env.action_space_sample()
                 action = self.predict(test_history, test_ep=0.05)
                 screen, reward, term = self.env.act(action, is_training=False)
+                test_history[:-1] = test_history[1:]
+                test_history[-1] = screen
                 current_reward += reward
                 if self.display:
                     self.env.render()
                 if term:
+                    print 'step: %d' % s
                     break
             best_reward = max(best_reward, current_reward)
             print 'current_reward: %d, best_reward: %d' % (current_reward, best_reward)
+        self.env.env.monitor.close()
 
     def createQNetwork(self, scope_name):
         init = tf.truncated_normal_initializer(0, 0.02)
@@ -189,6 +204,8 @@ class Agent:
         self.s_t, self.w, self.q = self.createQNetwork('prediction') ##self.q = max Q value
         self.q_action = tf.argmax(self.q, dimension=1)
         self.target_s_t, self.t_w, self.target_q = self.createQNetwork('target')
+        self.target_q_idx = tf.placeholder('int32', [None, None], 'outputs_idx')
+        self.target_q_with_idx = tf.gather_nd(self.target_q, self.target_q_idx)
 
         q_summary = []
         avg_q = tf.reduce_mean(self.q, 0)
@@ -237,7 +254,11 @@ class Agent:
                 self.summary_placeholders[tag] = tf.placeholder('float32', None, name=tag)
                 self.summary_ops[tag] = tf.histogram_summary(tag, self.summary_placeholders[tag])
 
-            self.writer = tf.train.SummaryWriter('./logs/', self.sess.graph)
+            summary_log_path = './logs/'
+            if self.double_q:
+                summary_log_path = os.path.join(summary_log_path, 'double_q/')
+
+            self.writer = tf.train.SummaryWriter(summary_log_path, self.sess.graph)
 
         tf.initialize_all_variables().run()
         self.saver = tf.train.Saver(self.w.values() + [self.step_op], max_to_keep=30)
@@ -278,10 +299,19 @@ class Agent:
         else:
             s_t, action, reward, s_t_plus_1, term = self.memory.sample()
 
-        q_t_plus_1 = self.target_q.eval({self.target_s_t: s_t_plus_1})
-        term = np.array(term) + 0.0
-        max_q_t_plus_1 = np.max(q_t_plus_1, axis=1)
-        target_q_t = (1 - term) * self.discount * max_q_t_plus_1 + reward
+        if self.double_q:
+            pred_action = self.q_action.eval({self.s_t: s_t_plus_1})
+            term = np.array(term) + 0.0
+            q_t_plus_1_with_pred_action = self.target_q_with_idx.eval({
+                self.target_s_t: s_t_plus_1,
+                self.target_q_idx: [[idx, pred_a] for idx, pred_a in enumerate(pred_action)]
+            })
+            target_q_t = (1 - term) * self.discount * q_t_plus_1_with_pred_action + reward
+        else:
+            q_t_plus_1 = self.target_q.eval({self.target_s_t: s_t_plus_1})
+            term = np.array(term) + 0.0
+            max_q_t_plus_1 = np.max(q_t_plus_1, axis=1)
+            target_q_t = (1 - term) * self.discount * max_q_t_plus_1 + reward
 
         _, q_t, loss, summary_str = self.sess.run([self.optim, self.q, self.loss, self.q_summary], {
             self.s_t: s_t,
