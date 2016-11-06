@@ -34,3 +34,4 @@ class Config:
     checkpoint_dir = 'checkpoints/'
     model_dir = 'model_dir/' + env_name + '/'
     double_q = True
+    random_start = 30

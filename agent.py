@@ -56,7 +56,7 @@ class Agent:
         total_reward, self.total_loss, self.total_q = 0., 0., 0.
         max_avg_ep_reward = 0
         ep_rewards, actions = [], []
-        screen, reward, action, term = self.env.newGame()
+        screen, reward, action, term = self.env.newRandomGame()
 
         for i in xrange(self.hist_len):
             self.history[i] = screen
@@ -74,7 +74,7 @@ class Agent:
             self.observe(screen, reward, action, term)
 
             if term:
-                screen, reward, action, term = self.env.newGame()
+                screen, reward, action, term = self.env.newRandomGame()
                 num_game += 1
                 ep_rewards.append(ep_reward)
                 ep_reward = 0.0
@@ -152,7 +152,7 @@ class Agent:
         best_reward = 0
         for idx in xrange(n_episode):
             self.env.env.reset()
-            screen, reward, action, term = self.env.newGame()
+            screen, reward, action, term = self.env.newRandomGame()
             current_reward = 0
             for i in xrange(self.hist_len):
                 test_history[i] = screen

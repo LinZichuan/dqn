@@ -1,5 +1,6 @@
 import gym
 import cv2
+import random
 
 class GymEnv:
     def __init__(self, config):
@@ -10,6 +11,15 @@ class GymEnv:
         self.display = config.display
         self.dims = (config.screen_h, config.screen_w)
         self.action_repeat = config.action_repeat
+        self.random_start = config.random_start
+
+    def newRandomGame(self):
+        self.newGame()
+        for _ in xrange(random.randint(0, self.random_start - 1)):
+            self.step(0)
+        if self.display:
+            self.render()
+        return self.screen, 0, 0, self.term
 
     def newGame(self):
         if self.env.ale.lives() == 0:
