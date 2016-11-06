@@ -119,11 +119,10 @@ class Agent:
                         })
                     num_game, self.update_count, ep_reward = 0, 0, 0.
                     total_reward, self.total_loss, self.total_q = 0., 0., 0.
-                    max_avg_ep_reward = 0
                     ep_rewards, actions = [], []
 
     def predict(self, s_t, test_ep=None):
-        ep = test_ep or (self.ep_end + max(0., self.ep_start - self.ep_end) * (self.ep_end_t - max(0., self.step - self.learn_start)) / self.ep_end_t)
+        ep = test_ep or (self.ep_end + max(0., (self.ep_start - self.ep_end) * (self.ep_end_t - max(0., self.step - self.learn_start)) / self.ep_end_t))
         if random.random() < ep:
             action = random.randrange(self.env.action_size)
         else:
