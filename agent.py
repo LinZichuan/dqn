@@ -193,8 +193,16 @@ class Agent:
             shape = l3.get_shape().as_list()
             l3_flat = tf.reshape(l3, [-1, reduce(lambda x,y: x*y, shape[1:])])
 
-            l4, w['l4_w'], w['l4_b'] = linear(l3_flat, 512, activation_fn=activation_fn, name='l4')
-            q, w['q_w'], w['q_b'] = linear(l4, self.env.action_size, name='q')
+            if self.dueling:
+                value_hid, w['l4_w'], w['l4_b'] = linear(l3_flat, 512, activation_fn=activation_fn, name='value_hid')
+                adv_hid, w['l4_adv_w'], w['l4_adv_b'] = linear(l3_flat, 512, activation_fn=activation_fn, name='adv_hid')
+                value, w['val_w_out'], w['val_b_out'] = linear(value_hid, 1, name='value_out')
+                advantage, w['adv_w_out'], w['adv_b_out'] = linear(adv_hid, self.env.action_size, name='adv_out')
+                # Average Dueling
+                q = value + (advantage - tf.reduce_mean(advantage, reduction_indices=1, keep_dims=True))
+            else:
+                l4, w['l4_w'], w['l4_b'] = linear(l3_flat, 512, activation_fn=activation_fn, name='l4')
+                q, w['q_w'], w['q_b'] = linear(l4, self.env.action_size, name='q')
 
             return s_t, w, q
 

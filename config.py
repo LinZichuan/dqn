@@ -33,7 +33,7 @@ class Config:
     
     checkpoint_dir = 'checkpoints/'
     double_q = False
-    dueling = False
+    dueling = True
     random_start = 30
 
 # cannot add variable casually, because it will affect the model_dir path!
