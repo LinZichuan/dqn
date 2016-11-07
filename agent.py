@@ -263,7 +263,8 @@ class Agent:
         tf.initialize_all_variables().run()
         self.saver = tf.train.Saver(self.w.values() + [self.step_op], max_to_keep=30)
         self.load_model()
-        self.memory.load()
+        if self.is_train:
+            self.memory.load()
         self.update_target_q_network()
 
     def inject_summary(self, tag_dict):
