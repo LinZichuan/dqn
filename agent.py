@@ -30,6 +30,7 @@ class Agent:
         self.is_train = config.is_train
         self.display = config.display
         self.double_q = config.double_q
+        self.dueling = config.dueling
 
         if self.is_train:
             self.memory = ReplayMemory(config)
@@ -43,9 +44,8 @@ class Agent:
         self.discount = config.discount
 
         self.step_op = tf.Variable(0, trainable=False, name='step')
-        self.checkpoint_dir = config.checkpoint_dir
-        if self.double_q:
-            self.checkpoint_dir = os.path.join(self.checkpoint_dir, 'double_q/')
+        self.checkpoint_dir = os.path.join('checkpoints/', config.model_dir)
+        self.summary_log_path = os.path.join('logs/', config.model_dir)
 
         self.build_graph()
 
@@ -197,7 +197,6 @@ class Agent:
             q, w['q_w'], w['q_b'] = linear(l4, self.env.action_size, name='q')
 
             return s_t, w, q
-        
 
     def build_graph(self):
         ###
@@ -254,11 +253,8 @@ class Agent:
                 self.summary_placeholders[tag] = tf.placeholder('float32', None, name=tag)
                 self.summary_ops[tag] = tf.histogram_summary(tag, self.summary_placeholders[tag])
 
-            summary_log_path = './logs/'
-            if self.double_q:
-                summary_log_path = os.path.join(summary_log_path, 'double_q/')
 
-            self.writer = tf.train.SummaryWriter(summary_log_path, self.sess.graph)
+            self.writer = tf.train.SummaryWriter(self.summary_log_path, self.sess.graph)
 
         tf.initialize_all_variables().run()
         self.saver = tf.train.Saver(self.w.values() + [self.step_op], max_to_keep=30)

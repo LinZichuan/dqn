@@ -32,6 +32,16 @@ class Config:
     min_reward = -1.
     
     checkpoint_dir = 'checkpoints/'
-    model_dir = 'model_dir/' + env_name + '/'
-    double_q = True
+    double_q = False
+    dueling = False
     random_start = 30
+
+# cannot add variable casually, because it will affect the model_dir path!
+    @property
+    def model_dir(self):
+        _model_dir = self.env_name
+        for k, v in sorted(vars(Config).iteritems()):
+            if not k.startswith('__') and not callable(k) and k not in ['model_dir', 'checkpoint_dir', 'env_name']:
+                v = ','.join([str(i) for i in v]) if type(v) == list else v
+                _model_dir += "/%s-%s" % (k, v)
+        return _model_dir + '/'

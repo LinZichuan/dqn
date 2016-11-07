@@ -4,7 +4,8 @@ from gymenv import GymEnv
 from agent import Agent
 
 def main():
-    with tf.Session() as sess:
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
+    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         config = Config()
         
         env = GymEnv(config)
