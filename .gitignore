@@ -1,1 +1,7 @@
 *.pyc
+output*
+*log*
+checkpoint*
+memory*
+video*
+*flag*
